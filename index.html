@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en" class="light">
 <head>
@@ -51,9 +50,6 @@
         .time-grid-container {
             position: relative;
             height: 2880px; /* 24h * 120px (Scaled for readability) */
-            background-color: transparent;
-        }
-        .dark .time-grid-container {
             background-color: transparent;
         }
         .dark .time-grid-container {
@@ -187,7 +183,7 @@
     <main class="flex-1 relative flex flex-col overflow-hidden min-h-0">
         <div class="flex-1 overflow-y-auto overflow-x-auto custom-scrollbar relative w-full min-h-0" id="calendarScrollArea">
             
-            <!-- Time Grid Container (For Day, 4-Day, Week) -->
+            <!-- Time Grid Container -->
             <div class="px-4 flex flex-col relative w-full h-max pb-12" id="timeGridWrapper">
                 <!-- Bulletproof Sticky Header -->
                 <div id="timeGridHeaderContainer" class="w-full min-w-[700px] pl-[60px] flex sticky top-0 z-[60] bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-gray-200 dark:border-slate-700 pb-2 mb-2 pt-2 shadow-sm rounded-b-xl">
@@ -263,6 +259,14 @@
                                 <input type="text" id="apiKey" class="w-full px-4 py-2.5 glass-btn rounded-xl focus:border-primary-500 text-sm outline-none transition shadow-inner">
                             </div>
                         </div>
+                        
+                        <!-- NEW WORKER URL INTEGRATION -->
+                        <div class="mt-4 mb-4">
+                            <label class="block text-xs font-bold text-gray-500 mb-1.5 ml-1">Cloudflare Worker URL</label>
+                            <input type="url" id="workerUrl" placeholder="https://your-worker.workers.dev" class="w-full px-4 py-2.5 glass-btn rounded-xl focus:border-primary-500 text-sm outline-none transition shadow-inner">
+                            <p class="text-[0.65rem] text-gray-500 mt-1 ml-1">Your backend URL for permanent, background logins.</p>
+                        </div>
+                        
                         <div class="mt-4 mb-4">
                             <label class="block text-xs font-bold text-gray-500 mb-1.5 ml-1">Gemini API Key (For AI Planner)</label>
                             <input type="password" id="geminiApiKey" placeholder="AIzaSy..." class="w-full px-4 py-2.5 glass-btn rounded-xl focus:border-primary-500 text-sm outline-none transition shadow-inner">
@@ -368,6 +372,7 @@
         
         document.getElementById('clientId').value = localStorage.getItem('cc_clientId') || '';
         document.getElementById('apiKey').value = localStorage.getItem('cc_apiKey') || '';
+        document.getElementById('workerUrl').value = localStorage.getItem('cc_workerUrl') || '';
         document.getElementById('startOfWeekPref').value = localStorage.getItem('cc_firstDayOfWeek') || '0';
         document.getElementById('geminiApiKey').value = localStorage.getItem('cc_geminiApiKey') || '';
 
@@ -485,18 +490,57 @@
 
         populateSelectors();
 
+        // ---------------- BACKEND REFRESH LOGIC ----------------
+        async function checkAndRefreshAuth() {
+            const savedToken = localStorage.getItem('cc_token');
+            const expiry = localStorage.getItem('cc_expiry');
+            const refreshToken = localStorage.getItem('cc_refreshToken');
+            const workerUrl = localStorage.getItem('cc_workerUrl');
+
+            // 1. If we have a valid unexpired token, use it!
+            if (savedToken && expiry && Date.now() < parseInt(expiry)) {
+                gapi.client.setToken({ access_token: savedToken });
+                setAuthorizedState();
+                fetchEvents(); 
+                return true;
+            } 
+            
+            // 2. If it is expired, but we have a Refresh Token, ask the backend for a new one!
+            if (refreshToken && workerUrl && (!expiry || Date.now() >= parseInt(expiry))) {
+                try {
+                    log('Token expired. Refreshing silently via backend...', 'info');
+                    const res = await fetch(`${workerUrl}/refresh`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ refresh_token: refreshToken })
+                    });
+                    const data = await res.json();
+                    
+                    if (data.access_token) {
+                        localStorage.setItem('cc_token', data.access_token);
+                        localStorage.setItem('cc_expiry', Date.now() + (data.expires_in * 1000));
+                        gapi.client.setToken({ access_token: data.access_token });
+                        setAuthorizedState();
+                        fetchEvents();
+                        return true;
+                    } else {
+                        throw new Error(data.error || 'Failed to refresh token');
+                    }
+                } catch(e) {
+                    log('Silent refresh failed. Please authorize again.', 'error');
+                    toggleSettings(true);
+                    return false;
+                }
+            }
+            return false;
+        }
+
         async function initGapi() {
             const apiKey = document.getElementById('apiKey').value.trim();
             if(!apiKey) return;
             try {
                 await gapi.client.init({ apiKey: apiKey, discoveryDocs: [DISCOVERY_DOC] });
-                const savedToken = localStorage.getItem('cc_token');
-                const expiry = localStorage.getItem('cc_expiry');
-                if (savedToken && expiry && Date.now() < parseInt(expiry)) {
-                    gapi.client.setToken({ access_token: savedToken });
-                    setAuthorizedState();
-                    fetchEvents(); 
-                }
+                await checkAndRefreshAuth(); 
             } catch(e) { log('GAPI Init Error: ' + e.message, 'error'); }
         }
 
@@ -514,31 +558,64 @@
         document.getElementById('authBtn').onclick = () => {
             const clientId = document.getElementById('clientId').value.trim();
             const apiKey = document.getElementById('apiKey').value.trim();
-            if (!clientId || !apiKey) { alert("Missing credentials"); return; }
+            const workerUrl = document.getElementById('workerUrl').value.trim();
+
+            if (!clientId || !apiKey || !workerUrl) { alert("Missing credentials or Worker URL"); return; }
 
             localStorage.setItem('cc_clientId', clientId);
             localStorage.setItem('cc_apiKey', apiKey);
+            localStorage.setItem('cc_workerUrl', workerUrl.replace(/\/$/, "")); // Remove trailing slash
 
-            tokenClient = google.accounts.oauth2.initTokenClient({
-                client_id: clientId, scope: SCOPES,
-                callback: (resp) => {
+            const authBtn = document.getElementById('authBtn');
+            const origHtml = authBtn.innerHTML;
+            authBtn.innerHTML = `<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Connecting...`;
+            lucide.createIcons();
+
+            // SWAPPED: initTokenClient -> initCodeClient for Backend
+            const client = google.accounts.oauth2.initCodeClient({
+                client_id: clientId, 
+                scope: SCOPES,
+                ux_mode: 'popup',
+                callback: async (resp) => {
                     if (resp.error) {
                         log('Auth Error: ' + resp.error, 'error');
+                        authBtn.innerHTML = origHtml;
+                        lucide.createIcons();
                         toggleSettings(true);
                         return;
                     }
-                    localStorage.setItem('cc_token', resp.access_token);
-                    localStorage.setItem('cc_expiry', Date.now() + (resp.expires_in * 1000));
-                    setAuthorizedState();
-                    fetchEvents();
+                    
+                    try {
+                        log('Got Auth Code. Trading with backend for permanent token...', 'info');
+                        const res = await fetch(`${localStorage.getItem('cc_workerUrl')}/auth`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ code: resp.code })
+                        });
+                        const data = await res.json();
+                        
+                        if (data.access_token) {
+                            localStorage.setItem('cc_token', data.access_token);
+                            localStorage.setItem('cc_expiry', Date.now() + (data.expires_in * 1000));
+                            if (data.refresh_token) {
+                                localStorage.setItem('cc_refreshToken', data.refresh_token);
+                                log('✅ Permanent Refresh Token secured!', 'success');
+                            }
+                            gapi.client.setToken({ access_token: data.access_token });
+                            setAuthorizedState();
+                            fetchEvents();
+                        } else {
+                            throw new Error(data.error_description || data.error || 'Unknown token error');
+                        }
+                    } catch(e) {
+                        log('Backend Error: ' + e.message, 'error');
+                        authBtn.innerHTML = origHtml;
+                        lucide.createIcons();
+                    }
                 },
             });
 
-            gapi.load('client', async () => {
-                await initGapi();
-                if (!gapi.client.getToken()) tokenClient.requestAccessToken({prompt: 'consent'});
-                else tokenClient.requestAccessToken({prompt: ''});
-            });
+            client.requestCode();
         };
 
         if (document.getElementById('clientId').value && document.getElementById('apiKey').value) {
@@ -1172,19 +1249,31 @@
         let chatHistory = [];
 
         function toggleAIChat() {
-            // Google blocks iframes, so we open a perfectly sized popup window instead!
-            const width = 450;
-            const height = 800;
-            // Position it nicely on the right side of the screen
-            const left = window.screenX + window.innerWidth - width - 40;
-            const top = window.screenY + 80;
-            
-            // This opens the official Gemini website in a clean, app-like window
-            window.open(
-                'https://gemini.google.com/app', 
-                'Gemini AI', 
-                `width=${width},height=${height},left=${left},top=${top},menubar=no,toolbar=no,location=no,status=no,scrollbars=yes`
-            );
+            if (isChatOpen) {
+                // If it's already open, always close the drawer
+                isChatOpen = false;
+                document.getElementById('aiChatDrawer').style.transform = 'translateX(-100%)';
+                return;
+            }
+
+            const apiKey = document.getElementById('geminiApiKey') ? document.getElementById('geminiApiKey').value.trim() : '';
+
+            if (!apiKey) {
+                // No API key: Open the official Gemini website in a popup window
+                const width = 450;
+                const height = 800;
+                const left = window.screenX + window.innerWidth - width - 40;
+                const top = window.screenY + 80;
+                window.open(
+                    'https://gemini.google.com/app', 
+                    'Gemini AI', 
+                    `width=${width},height=${height},left=${left},top=${top},menubar=no,toolbar=no,location=no,status=no,scrollbars=yes`
+                );
+            } else {
+                // API key exists: Open the custom side drawer
+                isChatOpen = true;
+                document.getElementById('aiChatDrawer').style.transform = 'translateX(0)';
+            }
         }
 
         document.getElementById('aiChatInput').addEventListener('keydown', function(e) {
