@@ -260,7 +260,6 @@
                             </div>
                         </div>
                         
-                        <!-- NEW WORKER URL INTEGRATION -->
                         <div class="mt-4 mb-4">
                             <label class="block text-xs font-bold text-gray-500 mb-1.5 ml-1">Cloudflare Worker URL</label>
                             <input type="url" id="workerUrl" placeholder="https://your-worker.workers.dev" class="w-full px-4 py-2.5 glass-btn rounded-xl focus:border-primary-500 text-sm outline-none transition shadow-inner">
@@ -497,7 +496,6 @@
             const refreshToken = localStorage.getItem('cc_refreshToken');
             const workerUrl = localStorage.getItem('cc_workerUrl');
 
-            // 1. If we have a valid unexpired token, use it!
             if (savedToken && expiry && Date.now() < parseInt(expiry)) {
                 gapi.client.setToken({ access_token: savedToken });
                 setAuthorizedState();
@@ -505,7 +503,6 @@
                 return true;
             } 
             
-            // 2. If it is expired, but we have a Refresh Token, ask the backend for a new one!
             if (refreshToken && workerUrl && (!expiry || Date.now() >= parseInt(expiry))) {
                 try {
                     log('Token expired. Refreshing silently via backend...', 'info');
@@ -555,6 +552,7 @@
             toggleSettings(); 
         }
 
+        // ================= BUG FIX APPLIED HERE =================
         document.getElementById('authBtn').onclick = () => {
             const clientId = document.getElementById('clientId').value.trim();
             const apiKey = document.getElementById('apiKey').value.trim();
@@ -564,58 +562,66 @@
 
             localStorage.setItem('cc_clientId', clientId);
             localStorage.setItem('cc_apiKey', apiKey);
-            localStorage.setItem('cc_workerUrl', workerUrl.replace(/\/$/, "")); // Remove trailing slash
+            localStorage.setItem('cc_workerUrl', workerUrl.replace(/\/$/, "")); 
 
             const authBtn = document.getElementById('authBtn');
             const origHtml = authBtn.innerHTML;
             authBtn.innerHTML = `<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Connecting...`;
             lucide.createIcons();
 
-            // SWAPPED: initTokenClient -> initCodeClient for Backend
-            const client = google.accounts.oauth2.initCodeClient({
-                client_id: clientId, 
-                scope: SCOPES,
-                ux_mode: 'popup',
-                callback: async (resp) => {
-                    if (resp.error) {
-                        log('Auth Error: ' + resp.error, 'error');
-                        authBtn.innerHTML = origHtml;
-                        lucide.createIcons();
-                        toggleSettings(true);
-                        return;
-                    }
-                    
-                    try {
-                        log('Got Auth Code. Trading with backend for permanent token...', 'info');
-                        const res = await fetch(`${localStorage.getItem('cc_workerUrl')}/auth`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ code: resp.code })
-                        });
-                        const data = await res.json();
-                        
-                        if (data.access_token) {
-                            localStorage.setItem('cc_token', data.access_token);
-                            localStorage.setItem('cc_expiry', Date.now() + (data.expires_in * 1000));
-                            if (data.refresh_token) {
-                                localStorage.setItem('cc_refreshToken', data.refresh_token);
-                                log('✅ Permanent Refresh Token secured!', 'success');
-                            }
-                            gapi.client.setToken({ access_token: data.access_token });
-                            setAuthorizedState();
-                            fetchEvents();
-                        } else {
-                            throw new Error(data.error_description || data.error || 'Unknown token error');
-                        }
-                    } catch(e) {
-                        log('Backend Error: ' + e.message, 'error');
-                        authBtn.innerHTML = origHtml;
-                        lucide.createIcons();
-                    }
-                },
-            });
+            // FIX: Force GAPI to initialize FIRST so that 'gapi.client.setToken' exists when the token arrives!
+            gapi.load('client', async () => {
+                try {
+                    await gapi.client.init({ apiKey: apiKey, discoveryDocs: [DISCOVERY_DOC] });
+                } catch(e) {
+                    log('GAPI Init Error: ' + e.message, 'error');
+                }
 
-            client.requestCode();
+                const client = google.accounts.oauth2.initCodeClient({
+                    client_id: clientId, 
+                    scope: SCOPES,
+                    ux_mode: 'popup',
+                    callback: async (resp) => {
+                        if (resp.error) {
+                            log('Auth Error: ' + resp.error, 'error');
+                            authBtn.innerHTML = origHtml;
+                            lucide.createIcons();
+                            toggleSettings(true);
+                            return;
+                        }
+                        
+                        try {
+                            log('Got Auth Code. Trading with backend for permanent token...', 'info');
+                            const res = await fetch(`${localStorage.getItem('cc_workerUrl')}/auth`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ code: resp.code })
+                            });
+                            const data = await res.json();
+                            
+                            if (data.access_token) {
+                                localStorage.setItem('cc_token', data.access_token);
+                                localStorage.setItem('cc_expiry', Date.now() + (data.expires_in * 1000));
+                                if (data.refresh_token) {
+                                    localStorage.setItem('cc_refreshToken', data.refresh_token);
+                                    log('✅ Permanent Refresh Token secured!', 'success');
+                                }
+                                gapi.client.setToken({ access_token: data.access_token }); // Now this won't crash!
+                                setAuthorizedState();
+                                fetchEvents();
+                            } else {
+                                throw new Error(data.error_description || data.error || 'Unknown token error');
+                            }
+                        } catch(e) {
+                            log('Backend Error: ' + e.message, 'error');
+                            authBtn.innerHTML = origHtml;
+                            lucide.createIcons();
+                        }
+                    },
+                });
+
+                client.requestCode();
+            });
         };
 
         if (document.getElementById('clientId').value && document.getElementById('apiKey').value) {
@@ -756,7 +762,6 @@
                     toggleSettings(true); 
                 }
             } finally {
-                // Must ALWAYS clear the spinner lock
                 btn.innerHTML = `<i data-lucide="refresh-cw" class="w-4 h-4"></i> Sync`;
                 isSyncing = false;
                 lucide.createIcons();
