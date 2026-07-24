@@ -1,0 +1,1432 @@
+
+<!DOCTYPE html>
+<html lang="en" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modern ColorDash Calendar</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google API -->
+    <script src="https://apis.google.com/js/api.js"></script>
+    <script src="https://accounts.google.com/gsi/client"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
+                    colors: {
+                        primary: { 50: '#eef2ff', 100: '#e0e7ff', 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca' },
+                    },
+                    boxShadow: { 'glass': '0 8px 32px 0 rgba(31, 38, 135, 0.07)' }
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        body { 
+            font-family: 'Inter', sans-serif; 
+            overflow: hidden; 
+            background-size: cover;
+            background-attachment: fixed;
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(156, 163, 175, 0.5); border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(107, 114, 128, 0.8); }
+
+        /* Bulletproof Grid Lines using standard rgba */
+        .time-grid-container {
+            position: relative;
+            height: 2880px; /* 24h * 120px (Scaled for readability) */
+            background-color: transparent;
+        }
+        .dark .time-grid-container {
+            background-color: transparent;
+        }
+        .dark .time-grid-container {
+            background-image: linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+        }
+        
+        /* Event Block Styles */
+        .event-block {
+            position: absolute;
+            border-radius: 8px;
+            padding: 6px 10px;
+            color: white;
+            cursor: grab;
+            user-select: none;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.2);
+            transition: opacity 0.2s, box-shadow 0.2s, transform 0.1s;
+            border: 1px solid rgba(0,0,0,0.05);
+            backdrop-filter: blur(4px);
+        }
+        .event-block:active { cursor: grabbing; }
+        .event-block.selected {
+            box-shadow: 0 0 0 2px #fff, 0 8px 20px rgba(0,0,0,0.3);
+            z-index: 50 !important;
+            transform: scale(1.02);
+            border-color: #000;
+        }
+        .dark .event-block.selected { box-shadow: 0 0 0 2px #1e293b, 0 0 0 4px #fff, 0 8px 20px rgba(0,0,0,0.5); }
+        .event-block.dragging { opacity: 0.7; z-index: 60 !important; transition: none; transform: scale(1.05); }
+
+        /* Month View Styles */
+        .month-grid {
+            display: grid;
+            grid-template-columns: repeat(7, minmax(0, 1fr));
+            grid-auto-rows: minmax(110px, 1fr);
+            height: max-content;
+            min-height: 100%;
+        }
+        .month-cell { 
+            border-right: 1px solid rgba(156, 163, 175, 0.2); 
+            border-bottom: 1px solid rgba(156, 163, 175, 0.2); 
+            padding: 4px; 
+            display: flex; 
+            flex-direction: column; 
+            transition: background 0.2s; 
+            position: relative; 
+        }
+        .month-event {
+            width: 14px; height: 14px; border-radius: 4px; cursor: grab; flex-shrink: 0;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2); transition: transform 0.1s, outline 0.1s;
+            user-select: none;
+        }
+        .month-event:hover { transform: scale(1.25); z-index: 20; position: relative; }
+        .month-event.selected { outline: 2px solid #000; outline-offset: 1px; z-index: 10; transform: scale(1.15); }
+        .dark .month-event.selected { outline-color: #fff; }
+
+        /* Glass Effects */
+        .glass-panel { background: rgba(255, 255, 255, 0.6); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.3); }
+        .dark .glass-panel { background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.08); }
+        
+        .glass-btn { background: rgba(255, 255, 255, 0.5); backdrop-filter: blur(8px); border: 1px solid rgba(255, 255, 255, 0.4); box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        .glass-btn:hover { background: rgba(255, 255, 255, 0.8); }
+        .dark .glass-btn { background: rgba(30, 41, 59, 0.5); border: 1px solid rgba(255, 255, 255, 0.1); }
+        .dark .glass-btn:hover { background: rgba(51, 65, 85, 0.8); }
+
+        .slide-up { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        @keyframes slideUp { from { transform: translate(-50%, 100%); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
+        .fade-in { animation: fadeIn 0.2s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        
+        /* Thinking Indicator */
+        .thinking-dots { display: flex; gap: 4px; padding: 6px 4px; }
+        .thinking-dot { width: 6px; height: 6px; background: currentColor; border-radius: 50%; animation: thinking 1.4s infinite ease-in-out both; opacity: 0.7; }
+        .thinking-dot:nth-child(1) { animation-delay: -0.32s; }
+        .thinking-dot:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes thinking { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
+    </style>
+</head>
+
+<body class="bg-gradient-to-br from-indigo-50 via-blue-50 to-purple-50 dark:from-slate-900 dark:via-[#0b1120] dark:to-slate-900 text-slate-800 dark:text-slate-200 h-screen w-full flex flex-col transition-colors duration-500">
+
+    <nav class="h-[72px] flex items-center justify-between px-6 glass-panel z-30 flex-shrink-0 shadow-sm transition-colors duration-300">
+        <div class="flex items-center gap-6">
+            <h1 class="text-2xl font-bold bg-gradient-to-r from-primary-600 to-fuchsia-600 dark:from-primary-400 dark:to-fuchsia-400 bg-clip-text text-transparent flex items-center gap-2 drop-shadow-sm">
+                <i data-lucide="calendar-days" class="text-primary-600 dark:text-primary-400"></i> ColorDash
+            </h1>
+            
+            <!-- View Controls -->
+            <div class="hidden md:flex bg-black/5 dark:bg-white/5 rounded-xl p-1 gap-1 border border-black/5 dark:border-white/5 backdrop-blur-md shadow-inner">
+                <button onclick="setView('day')" id="btn-view-day" class="px-4 py-1.5 text-sm font-semibold rounded-lg text-gray-600 dark:text-gray-300 hover:bg-white/50 dark:hover:bg-slate-700/50 transition">Day</button>
+                <button onclick="setView('4day')" id="btn-view-4day" class="px-4 py-1.5 text-sm font-semibold rounded-lg text-gray-600 dark:text-gray-300 hover:bg-white/50 dark:hover:bg-slate-700/50 transition">4-Day</button>
+                <button onclick="setView('week')" id="btn-view-week" class="px-4 py-1.5 text-sm font-semibold rounded-lg text-gray-600 dark:text-gray-300 hover:bg-white/50 dark:hover:bg-slate-700/50 transition">Week</button>
+                <button onclick="setView('month')" id="btn-view-month" class="px-4 py-1.5 text-sm font-semibold rounded-lg text-gray-600 dark:text-gray-300 hover:bg-white/50 dark:hover:bg-slate-700/50 transition">Month</button>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-4">
+            <!-- Date Navigation Display -->
+            <div class="flex items-center gap-1 bg-black/5 dark:bg-white/5 rounded-xl p-1 backdrop-blur-md shadow-inner mr-2">
+                <button onclick="navigateDate(-1)" class="p-2 rounded-lg hover:bg-white/60 dark:hover:bg-slate-700/60 transition"><i data-lucide="chevron-left" class="w-5 h-5"></i></button>
+                <div id="currentDateDisplay" class="flex flex-col items-center justify-center min-w-[160px] text-center px-3">
+                    <span class="font-bold text-sm">Loading...</span>
+                </div>
+                <button onclick="navigateDate(1)" class="p-2 rounded-lg hover:bg-white/60 dark:hover:bg-slate-700/60 transition"><i data-lucide="chevron-right" class="w-5 h-5"></i></button>
+                <button onclick="navigateToday()" class="ml-1 text-xs glass-btn px-3 py-1.5 rounded-lg font-semibold text-primary-700 dark:text-primary-300 transition shadow-sm">Today</button>
+            </div>
+
+            <!-- Action Buttons -->
+            <button onclick="toggleAIChat()" class="bg-gradient-to-r from-fuchsia-600 to-purple-600 hover:from-fuchsia-700 hover:to-purple-700 text-white px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition shadow-lg shadow-fuchsia-500/30 transform hover:-translate-y-0.5 border border-fuchsia-500/50 mr-2">
+                <i data-lucide="sparkles" class="w-4 h-4"></i> AI Planner
+            </button>
+            <button id="autoColorBtn" class="bg-white/60 hover:bg-white/90 dark:bg-slate-800/60 dark:hover:bg-slate-700/90 text-primary-600 dark:text-primary-400 px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition shadow-sm border border-white/40 dark:border-slate-700/50">
+                <i data-lucide="palette" class="w-4 h-4"></i> Auto-Color
+            </button>
+            <button id="mainSyncBtn" class="bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-700 hover:to-primary-600 text-white px-5 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 transition shadow-lg shadow-primary-500/30 transform hover:-translate-y-0.5 border border-primary-500/50">
+                <i data-lucide="refresh-cw" class="w-4 h-4"></i> Sync
+            </button>
+
+            <!-- Theme & Settings Toggles -->
+            <div class="flex items-center gap-2 border-l border-gray-300/50 dark:border-slate-700/50 pl-4 ml-1">
+                <button onclick="toggleTheme()" class="p-2 rounded-xl text-gray-500 hover:text-primary-600 hover:bg-white/50 dark:text-gray-400 dark:hover:text-primary-400 dark:hover:bg-slate-800/50 transition">
+                    <i data-lucide="sun" id="themeIcon"></i>
+                </button>
+                <button onclick="toggleSettings()" class="p-2 rounded-xl text-gray-500 hover:text-primary-600 hover:bg-white/50 dark:text-gray-400 dark:hover:text-primary-400 dark:hover:bg-slate-800/50 transition">
+                    <i data-lucide="settings"></i>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <main class="flex-1 relative flex flex-col overflow-hidden min-h-0">
+        <div class="flex-1 overflow-y-auto overflow-x-auto custom-scrollbar relative w-full min-h-0" id="calendarScrollArea">
+            
+            <!-- Time Grid Container (For Day, 4-Day, Week) -->
+            <div class="px-4 flex flex-col relative w-full h-max pb-12" id="timeGridWrapper">
+                <!-- Bulletproof Sticky Header -->
+                <div id="timeGridHeaderContainer" class="w-full min-w-[700px] pl-[60px] flex sticky top-0 z-[60] bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-gray-200 dark:border-slate-700 pb-2 mb-2 pt-2 shadow-sm rounded-b-xl">
+                    <!-- Populated via JS -->
+                </div>
+                <!-- Main Grid Body -->
+                <div id="timeGridContainer" class="time-grid-container w-full min-w-[700px] block rounded-xl glass-panel shadow-glass overflow-hidden">
+                    <!-- Populated via JS -->
+                </div>
+            </div>
+
+            <!-- Month Grid Container -->
+            <div id="monthGridContainer" class="hidden w-full h-full min-h-[700px] flex-col p-4">
+                <div class="glass-panel shadow-glass rounded-xl h-full flex flex-col overflow-hidden border border-white/40 dark:border-slate-700/40 min-h-0">
+                    <div id="monthGridHeader" class="grid grid-cols-7 border-b border-gray-200/50 dark:border-slate-700/50 bg-black/5 dark:bg-white/5 text-xs font-bold text-center py-3 text-slate-500 uppercase tracking-wider backdrop-blur-md"></div>
+                    <div id="monthGridCells" class="month-grid flex-1 bg-white/30 dark:bg-slate-900/30 overflow-y-auto custom-scrollbar min-h-0"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="bulkEditBar" class="hidden absolute bottom-10 left-1/2 -translate-x-1/2 glass-panel shadow-2xl rounded-2xl p-4 flex gap-6 items-center z-40 slide-up border border-white/50 dark:border-slate-600/50">
+            <div class="flex flex-col border-r border-gray-300/50 dark:border-slate-600/50 pr-5">
+                <span class="text-lg font-black text-primary-600 dark:text-primary-400 leading-none" id="selectedCount">0</span>
+                <span class="text-[0.65rem] font-bold text-slate-500 uppercase tracking-widest mt-1">Selected</span>
+            </div>
+            
+            <div class="flex items-center gap-3">
+                <div class="bg-gray-100 dark:bg-slate-800 p-2 rounded-lg"><i data-lucide="palette" class="w-4 h-4 text-gray-500 dark:text-gray-400"></i></div>
+                <select id="bulkColor" class="bg-transparent font-medium border-b-2 border-gray-300 dark:border-slate-600 pb-1 text-sm outline-none focus:border-primary-500 cursor-pointer">
+                    <option value="">Keep Original Color</option>
+                </select>
+            </div>
+
+            <div class="flex flex-col gap-1 border-l border-gray-300/50 dark:border-slate-600/50 pl-5">
+                <div class="flex items-center gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                    <i data-lucide="bell" class="w-3 h-3"></i> Notifications
+                </div>
+                <div class="flex gap-3 text-sm font-medium" id="bulkReminders">
+                    <label class="flex items-center gap-1.5 cursor-pointer hover:text-primary-600"><input type="checkbox" value="0" class="accent-primary-600 cursor-pointer"> 0m</label>
+                    <label class="flex items-center gap-1.5 cursor-pointer hover:text-primary-600"><input type="checkbox" value="5" class="accent-primary-600 cursor-pointer"> 5m</label>
+                    <label class="flex items-center gap-1.5 cursor-pointer hover:text-primary-600"><input type="checkbox" value="15" class="accent-primary-600 cursor-pointer"> 15m</label>
+                    <label class="flex items-center gap-1.5 cursor-pointer hover:text-primary-600"><input type="checkbox" value="30" class="accent-primary-600 cursor-pointer"> 30m</label>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2 border-l border-gray-300/50 dark:border-slate-600/50 pl-5">
+                <button id="applyBulkBtn" class="bg-primary-600 text-white px-5 py-2 rounded-xl text-sm font-bold hover:bg-primary-700 transition shadow-md shadow-primary-500/20">
+                    Apply Changes
+                </button>
+                <button onclick="clearSelection()" class="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-xl transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+        </div>
+
+        <div id="settingsModal" class="hidden absolute inset-0 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 fade-in">
+            <div class="glass-panel shadow-2xl rounded-3xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden border border-white/30 dark:border-slate-700/50">
+                <div class="p-6 border-b border-gray-200/50 dark:border-slate-700/50 flex justify-between items-center bg-white/40 dark:bg-slate-800/40">
+                    <h2 class="text-xl font-bold flex items-center gap-3 drop-shadow-sm"><i data-lucide="settings-2" class="text-primary-600"></i> App Configuration</h2>
+                    <button onclick="toggleSettings()" class="text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white bg-white/50 dark:bg-slate-800/50 p-2 rounded-full transition"><i data-lucide="x"></i></button>
+                </div>
+                
+                <div class="p-8 overflow-y-auto custom-scrollbar space-y-10 flex-1 bg-white/20 dark:bg-slate-900/20">
+                    <section class="space-y-4">
+                        <h3 class="text-sm font-bold text-primary-600 dark:text-primary-400 uppercase tracking-widest border-b border-primary-100 dark:border-primary-900/30 pb-2">1. Google Authentication</h3>
+                        <div class="grid grid-cols-2 gap-5">
+                            <div>
+                                <label class="block text-xs font-bold text-gray-500 mb-1.5 ml-1">Client ID</label>
+                                <input type="text" id="clientId" class="w-full px-4 py-2.5 glass-btn rounded-xl focus:border-primary-500 text-sm outline-none transition shadow-inner">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-gray-500 mb-1.5 ml-1">API Key</label>
+                                <input type="text" id="apiKey" class="w-full px-4 py-2.5 glass-btn rounded-xl focus:border-primary-500 text-sm outline-none transition shadow-inner">
+                            </div>
+                        </div>
+                        <div class="mt-4 mb-4">
+                            <label class="block text-xs font-bold text-gray-500 mb-1.5 ml-1">Gemini API Key (For AI Planner)</label>
+                            <input type="password" id="geminiApiKey" placeholder="AIzaSy..." class="w-full px-4 py-2.5 glass-btn rounded-xl focus:border-primary-500 text-sm outline-none transition shadow-inner">
+                            <p class="text-[0.65rem] text-gray-500 mt-1 ml-1">Get a free key from <a href="https://aistudio.google.com/app/apikey" target="_blank" class="text-primary-600 underline">Google AI Studio</a>.</p>
+                        </div>
+                        <button id="authBtn" class="w-full bg-slate-800 dark:bg-slate-700 text-white py-3 rounded-xl text-sm font-bold hover:bg-slate-900 dark:hover:bg-slate-600 transition flex justify-center items-center gap-2 shadow-lg">
+                            <i data-lucide="key" class="w-4 h-4"></i> Authorize & Connect Calendar
+                        </button>
+                    </section>
+
+                    <section class="space-y-4">
+                        <h3 class="text-sm font-bold text-primary-600 dark:text-primary-400 uppercase tracking-widest border-b border-primary-100 dark:border-primary-900/30 pb-2">2. Calendar Preferences</h3>
+                        <div class="flex flex-col gap-2 w-1/2">
+                            <label class="block text-xs font-bold text-gray-500 mb-1 ml-1">First Day of the Week</label>
+                            <select id="startOfWeekPref" class="w-full px-4 py-2.5 glass-btn rounded-xl focus:border-primary-500 text-sm outline-none transition cursor-pointer shadow-inner font-medium">
+                                <option value="0">Sunday</option>
+                                <option value="1">Monday</option>
+                                <option value="6">Saturday</option>
+                            </select>
+                        </div>
+                    </section>
+
+                    <section class="space-y-4">
+                        <div class="flex justify-between items-end border-b border-primary-100 dark:border-primary-900/30 pb-2">
+                            <h3 class="text-sm font-bold text-primary-600 dark:text-primary-400 uppercase tracking-widest">3. Auto Color Mapping</h3>
+                            <button id="addMapBtn" class="text-primary-600 hover:text-primary-700 dark:text-primary-400 text-xs font-bold flex items-center gap-1 bg-primary-50 dark:bg-primary-900/30 px-3 py-1.5 rounded-lg transition"><i data-lucide="plus" class="w-3 h-3"></i> Add Emoji</button>
+                        </div>
+                        <p class="text-xs font-medium text-gray-500 leading-relaxed max-w-lg">When you click "Auto-Color", it checks event titles for these emojis and applies your chosen color.</p>
+                        <div id="emojiMappingContainer" class="space-y-3 mt-4"></div>
+                    </section>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI Chat Drawer -->
+        <div id="aiChatDrawer" class="absolute top-0 left-0 h-full w-80 md:w-96 bg-white/90 dark:bg-slate-900/90 backdrop-blur-2xl border-r border-gray-200/50 dark:border-slate-700/50 z-[60] transform -translate-x-full transition-transform duration-400 ease-in-out flex flex-col shadow-[20px_0_40px_rgba(0,0,0,0.1)]">
+            <div class="p-5 flex justify-between items-center border-b border-gray-200/50 dark:border-slate-700/50 bg-gradient-to-r from-fuchsia-50 to-purple-50 dark:from-slate-800 dark:to-slate-900">
+                <div class="font-bold text-lg flex items-center gap-2 bg-gradient-to-r from-fuchsia-600 to-purple-600 bg-clip-text text-transparent">
+                    <i data-lucide="sparkles" class="text-fuchsia-500 w-5 h-5"></i> Gemini Planner
+                </div>
+                <button onclick="toggleAIChat()" class="text-gray-500 hover:text-gray-900 dark:hover:text-white transition bg-white/50 dark:bg-slate-800/50 p-1.5 rounded-full"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            
+            <div id="aiChatContent" class="flex-1 overflow-y-auto custom-scrollbar p-4 flex flex-col gap-4">
+                <!-- Chat messages will be injected here -->
+            </div>
+
+            <div class="p-4 border-t border-gray-200/50 dark:border-slate-700/50 bg-white/50 dark:bg-slate-900/50 backdrop-blur-md flex gap-2 items-end">
+                <textarea id="aiChatInput" rows="1" placeholder="Ask about your schedule..." class="flex-1 bg-black/5 dark:bg-white/5 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-fuchsia-500/50 resize-none custom-scrollbar transition"></textarea>
+                <button id="aiSendBtn" onclick="sendChatMessage()" class="bg-gradient-to-r from-fuchsia-600 to-purple-600 text-white p-3 rounded-xl hover:shadow-lg hover:shadow-fuchsia-500/30 transition transform hover:-translate-y-0.5">
+                    <i data-lucide="send" class="w-4 h-4"></i>
+                </button>
+            </div>
+        </div>
+
+        <div id="logDrawer" class="absolute bottom-0 right-6 w-96 bg-gray-900/95 backdrop-blur-xl text-green-400 border border-gray-700 rounded-t-2xl shadow-2xl z-50 transform translate-y-[calc(100%-48px)] transition-transform duration-400 ease-in-out flex flex-col h-72">
+            <div class="h-[48px] px-5 flex justify-between items-center bg-gray-800/80 rounded-t-2xl cursor-pointer select-none border-b border-gray-700" onclick="toggleLogs()">
+                <div class="flex items-center gap-2 text-sm font-bold text-gray-300 tracking-wide"><i data-lucide="terminal" class="w-4 h-4 text-green-500"></i> System Log</div>
+                <div class="flex items-center gap-4">
+                    <button id="clearLogBtn" class="text-xs font-semibold text-gray-500 hover:text-white bg-gray-700/50 px-2 py-1 rounded transition" onclick="event.stopPropagation(); document.getElementById('logContent').innerHTML=''">Clear</button>
+                    <i data-lucide="chevron-up" id="logChevron" class="w-5 h-5 text-gray-400 transition-transform duration-300"></i>
+                </div>
+            </div>
+            <div id="logContent" class="flex-1 p-4 overflow-y-auto custom-scrollbar font-mono text-[0.7rem] space-y-1.5 leading-relaxed tracking-tight">
+                <div>> Application initialized in Secure Mode.</div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest';
+        const SCOPES = 'https://www.googleapis.com/auth/calendar.events';
+        let tokenClient;
+        let isAuthorized = false;
+        
+        let loadedEvents = [];
+        let selectedEventIds = new Set();
+        
+        let currentView = 'week'; 
+        let currentDate = new Date();
+        let isSyncing = false; // Core safety lock
+
+        // Optimized Drag Shadow element
+        const dragShadow = document.createElement('div');
+        dragShadow.id = 'dragShadow';
+        dragShadow.className = 'absolute rounded-lg bg-primary-500/20 border-2 border-primary-500/60 border-dashed pointer-events-none z-[70] flex items-start justify-start p-1 backdrop-blur-sm transition-all duration-75 hidden';
+        
+        const CALENDAR_COLORS = {
+            '1': { name: 'Lavender', hex: '#7986CB' }, '2': { name: 'Sage', hex: '#33B679' },
+            '3': { name: 'Grape', hex: '#8E24AA' }, '4': { name: 'Flamingo', hex: '#E67C73' },
+            '5': { name: 'Banana', hex: '#F6BF26' }, '6': { name: 'Tangerine', hex: '#F4511E' },
+            '7': { name: 'Peacock', hex: '#039BE5' }, '8': { name: 'Graphite', hex: '#616161' },
+            '9': { name: 'Blueberry', hex: '#3F51B5' }, '10': { name: 'Basil', hex: '#0B8043' },
+            '11': { name: 'Tomato', hex: '#D50000' }
+        };
+        const defaultColorHex = '#039BE5';
+
+        // Load Persistent Data safely
+        let emojiMap = JSON.parse(localStorage.getItem('cc_emojiMap'));
+        if(!emojiMap || typeof emojiMap !== 'object') {
+            emojiMap = { '📚': '9', '☕': '5', '🛋️': '10' };
+        }
+        
+        document.getElementById('clientId').value = localStorage.getItem('cc_clientId') || '';
+        document.getElementById('apiKey').value = localStorage.getItem('cc_apiKey') || '';
+        document.getElementById('startOfWeekPref').value = localStorage.getItem('cc_firstDayOfWeek') || '0';
+        document.getElementById('geminiApiKey').value = localStorage.getItem('cc_geminiApiKey') || '';
+
+        document.getElementById('geminiApiKey').addEventListener('change', (e) => {
+            localStorage.setItem('cc_geminiApiKey', e.target.value.trim());
+        });
+
+        lucide.createIcons();
+
+        function toggleTheme() {
+            const html = document.documentElement;
+            html.classList.toggle('dark');
+            const isDark = html.classList.contains('dark');
+            localStorage.setItem('cc_theme', isDark ? 'dark' : 'light');
+            document.getElementById('themeIcon').setAttribute('data-lucide', isDark ? 'moon' : 'sun');
+            lucide.createIcons();
+        }
+        if(localStorage.getItem('cc_theme') === 'dark' || (!localStorage.getItem('cc_theme') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark');
+            document.getElementById('themeIcon').setAttribute('data-lucide', 'moon');
+            lucide.createIcons();
+        }
+
+        const logContent = document.getElementById('logContent');
+        function log(msg, type = 'info') {
+            const el = document.createElement('div');
+            el.textContent = `> ${msg}`;
+            if (type === 'error') el.className = 'text-red-400 font-bold';
+            else if (type === 'success') el.className = 'text-green-300';
+            else if (type === 'warn') el.className = 'text-yellow-400';
+            else el.className = 'text-slate-300';
+            logContent.appendChild(el);
+            logContent.scrollTop = logContent.scrollHeight;
+        }
+
+        let logsOpen = false;
+        function toggleLogs() {
+            logsOpen = !logsOpen;
+            const drawer = document.getElementById('logDrawer');
+            const chevron = document.getElementById('logChevron');
+            drawer.style.transform = logsOpen ? 'translateY(0)' : 'translateY(calc(100% - 48px))';
+            chevron.style.transform = logsOpen ? 'rotate(180deg)' : 'rotate(0)';
+        }
+
+        function toggleSettings(forceOpen = false) {
+            const modal = document.getElementById('settingsModal');
+            if(forceOpen) modal.classList.remove('hidden');
+            else modal.classList.toggle('hidden');
+        }
+
+        document.getElementById('startOfWeekPref').onchange = (e) => {
+            localStorage.setItem('cc_firstDayOfWeek', e.target.value);
+            updateDateDisplay();
+            if (['week', 'month'].includes(currentView)) fetchEvents();
+            else renderCalendar();
+        };
+
+        function populateSelectors() {
+            const bulkColor = document.getElementById('bulkColor');
+            for (const [id, data] of Object.entries(CALENDAR_COLORS)) {
+                bulkColor.insertAdjacentHTML('beforeend', `<option value="${id}">${data.name}</option>`);
+            }
+            renderEmojiMappers();
+        }
+
+        function renderEmojiMappers() {
+            const container = document.getElementById('emojiMappingContainer');
+            container.innerHTML = '';
+            for (const [emoji, colorId] of Object.entries(emojiMap)) {
+                container.appendChild(createMappingRow(emoji, colorId));
+            }
+        }
+
+        function createMappingRow(emojiText = '', selectedColorId = '9') {
+            const row = document.createElement('div');
+            row.className = 'flex gap-3 items-center bg-white/40 dark:bg-slate-800/40 p-2 rounded-xl shadow-sm border border-gray-200/50 dark:border-slate-700/50 backdrop-blur-sm';
+            
+            const emIn = document.createElement('input');
+            emIn.type = 'text'; emIn.value = emojiText; emIn.placeholder = 'Emoji';
+            emIn.className = 'w-16 text-center text-lg px-2 py-2 glass-btn rounded-lg font-medium outline-none focus:ring-2 focus:ring-primary-500 transition shadow-inner';
+            
+            const colSel = document.createElement('select');
+            colSel.className = 'flex-1 px-3 py-2.5 glass-btn rounded-lg text-sm font-semibold outline-none focus:ring-2 focus:ring-primary-500 transition shadow-inner cursor-pointer';
+            for (const [id, data] of Object.entries(CALENDAR_COLORS)) {
+                const opt = new Option(data.name, id);
+                if (id === selectedColorId) opt.selected = true;
+                colSel.add(opt);
+            }
+
+            const delBtn = document.createElement('button');
+            delBtn.innerHTML = '<i data-lucide="trash-2" class="w-4 h-4"></i>';
+            delBtn.className = 'p-2.5 rounded-lg text-red-500 hover:text-white hover:bg-red-500 transition shadow-sm bg-white/50 dark:bg-slate-700/50 border border-red-100 dark:border-red-900/30';
+            delBtn.onclick = () => { row.remove(); saveMappings(); };
+
+            emIn.onchange = saveMappings; colSel.onchange = saveMappings;
+            row.append(emIn, colSel, delBtn);
+            lucide.createIcons({root: row});
+            return row;
+        }
+
+        function saveMappings() {
+            const newMap = {};
+            Array.from(document.getElementById('emojiMappingContainer').children).forEach(row => {
+                const em = row.children[0].value.trim();
+                const col = row.children[1].value;
+                if (em) newMap[em] = col;
+            });
+            emojiMap = newMap;
+            localStorage.setItem('cc_emojiMap', JSON.stringify(emojiMap));
+        }
+
+        document.getElementById('addMapBtn').onclick = () => {
+            document.getElementById('emojiMappingContainer').appendChild(createMappingRow('', '1'));
+        };
+
+        populateSelectors();
+
+        async function initGapi() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            if(!apiKey) return;
+            try {
+                await gapi.client.init({ apiKey: apiKey, discoveryDocs: [DISCOVERY_DOC] });
+                const savedToken = localStorage.getItem('cc_token');
+                const expiry = localStorage.getItem('cc_expiry');
+                if (savedToken && expiry && Date.now() < parseInt(expiry)) {
+                    gapi.client.setToken({ access_token: savedToken });
+                    setAuthorizedState();
+                    fetchEvents(); 
+                }
+            } catch(e) { log('GAPI Init Error: ' + e.message, 'error'); }
+        }
+
+        function setAuthorizedState() {
+            isAuthorized = true;
+            log('Authorized via active session.', 'success');
+            const authBtn = document.getElementById('authBtn');
+            authBtn.innerHTML = `<i data-lucide="check-circle" class="w-5 h-5"></i> Connected`;
+            authBtn.classList.replace('bg-slate-800', 'bg-green-600');
+            authBtn.classList.replace('dark:bg-slate-700', 'dark:bg-green-700');
+            lucide.createIcons();
+            toggleSettings(); 
+        }
+
+        document.getElementById('authBtn').onclick = () => {
+            const clientId = document.getElementById('clientId').value.trim();
+            const apiKey = document.getElementById('apiKey').value.trim();
+            if (!clientId || !apiKey) { alert("Missing credentials"); return; }
+
+            localStorage.setItem('cc_clientId', clientId);
+            localStorage.setItem('cc_apiKey', apiKey);
+
+            tokenClient = google.accounts.oauth2.initTokenClient({
+                client_id: clientId, scope: SCOPES,
+                callback: (resp) => {
+                    if (resp.error) {
+                        log('Auth Error: ' + resp.error, 'error');
+                        toggleSettings(true);
+                        return;
+                    }
+                    localStorage.setItem('cc_token', resp.access_token);
+                    localStorage.setItem('cc_expiry', Date.now() + (resp.expires_in * 1000));
+                    setAuthorizedState();
+                    fetchEvents();
+                },
+            });
+
+            gapi.load('client', async () => {
+                await initGapi();
+                if (!gapi.client.getToken()) tokenClient.requestAccessToken({prompt: 'consent'});
+                else tokenClient.requestAccessToken({prompt: ''});
+            });
+        };
+
+        if (document.getElementById('clientId').value && document.getElementById('apiKey').value) {
+            gapi.load('client', initGapi);
+        }
+
+        function navigateDate(dir) {
+            if(currentView === 'day') currentDate.setDate(currentDate.getDate() + dir);
+            else if(currentView === '4day') currentDate.setDate(currentDate.getDate() + (dir * 4));
+            else if(currentView === 'week') currentDate.setDate(currentDate.getDate() + (dir * 7));
+            else if(currentView === 'month') currentDate.setMonth(currentDate.getMonth() + dir);
+            updateDateDisplay();
+            fetchEvents();
+        }
+
+        function navigateToday() {
+            currentDate = new Date();
+            updateDateDisplay();
+            fetchEvents();
+        }
+
+        function setView(view) {
+            currentView = view;
+            ['day','4day','week','month'].forEach(v => {
+                const btn = document.getElementById(`btn-view-${v}`);
+                if(v === view) {
+                    btn.classList.add('bg-white/80', 'dark:bg-slate-700/80', 'shadow-sm', 'text-primary-700', 'dark:text-primary-300');
+                    btn.classList.remove('text-gray-600', 'dark:text-gray-300', 'hover:bg-white/50', 'dark:hover:bg-slate-700/50');
+                } else {
+                    btn.classList.remove('bg-white/80', 'dark:bg-slate-700/80', 'shadow-sm', 'text-primary-700', 'dark:text-primary-300');
+                    btn.classList.add('text-gray-600', 'dark:text-gray-300', 'hover:bg-white/50', 'dark:hover:bg-slate-700/50');
+                }
+            });
+
+            document.getElementById('timeGridWrapper').style.display = view === 'month' ? 'none' : 'flex';
+            document.getElementById('monthGridContainer').style.display = view === 'month' ? 'flex' : 'none';
+            
+            updateDateDisplay();
+            fetchEvents();
+        }
+
+        function getStartOfWeek(date) {
+            const d = new Date(date);
+            const day = d.getDay(); 
+            const firstDay = parseInt(localStorage.getItem('cc_firstDayOfWeek') || '0', 10);
+            const dayDiff = day >= firstDay ? day - firstDay : 7 - (firstDay - day);
+            return new Date(d.setDate(d.getDate() - dayDiff));
+        }
+
+        function getDateRange() {
+            const start = new Date(currentDate);
+            const end = new Date(currentDate);
+            
+            if (currentView === 'day') {
+                start.setHours(0,0,0,0); end.setHours(23,59,59,999);
+            } else if (currentView === '4day') {
+                start.setHours(0,0,0,0);
+                end.setDate(end.getDate() + 3); end.setHours(23,59,59,999);
+            } else if (currentView === 'week') {
+                const wStart = getStartOfWeek(currentDate);
+                start.setTime(wStart.getTime()); start.setHours(0,0,0,0);
+                end.setTime(wStart.getTime()); end.setDate(end.getDate() + 6); end.setHours(23,59,59,999);
+            } else if (currentView === 'month') {
+                start.setDate(1); start.setHours(0,0,0,0);
+                start.setTime(getStartOfWeek(start).getTime()); 
+                
+                end.setMonth(end.getMonth() + 1); end.setDate(0); end.setHours(23,59,59,999);
+                const firstDay = parseInt(localStorage.getItem('cc_firstDayOfWeek') || '0', 10);
+                const eDay = end.getDay();
+                const endTarget = (firstDay + 6) % 7; 
+                if(eDay !== endTarget) {
+                    const addDays = eDay < endTarget ? endTarget - eDay : 7 - (eDay - endTarget);
+                    end.setDate(end.getDate() + addDays);
+                }
+            }
+            return { min: start, max: end };
+        }
+
+        function updateDateDisplay() {
+            const range = getDateRange();
+            const disp = document.getElementById('currentDateDisplay');
+            
+            let gregText = '';
+            let jalaliText = '';
+
+            const formatSafeGreg = (date, opts) => new Intl.DateTimeFormat('en-US', opts).format(date);
+            const formatSafeJalali = (date, opts) => new Intl.DateTimeFormat('fa-IR', opts).format(date);
+
+            if(currentView === 'day') {
+                gregText = formatSafeGreg(range.min, { day: 'numeric', month: 'long', year: 'numeric' });
+                jalaliText = formatSafeJalali(range.min, { day: 'numeric', month: 'long', year: 'numeric' });
+            } else if (currentView === 'month') {
+                gregText = formatSafeGreg(currentDate, { month:'long', year:'numeric' });
+                jalaliText = formatSafeJalali(currentDate, { month:'long', year:'numeric' });
+            } else {
+                const shortOpts = { weekday: 'short', day: 'numeric', month: 'short' };
+                gregText = `${formatSafeGreg(range.min, shortOpts)} - ${formatSafeGreg(range.max, shortOpts)}`;
+                jalaliText = `${formatSafeJalali(range.min, { day: 'numeric', month: 'short' })} - ${formatSafeJalali(range.max, { day: 'numeric', month: 'short' })}`;
+            }
+
+            disp.innerHTML = `
+                <span class="font-bold text-sm tracking-tight whitespace-nowrap">${gregText}</span>
+                <span class="text-[0.65rem] font-semibold text-slate-500 dark:text-slate-400 mt-0.5 tracking-wider whitespace-nowrap">${jalaliText}</span>
+            `;
+        }
+        
+        setView('week');
+
+        document.getElementById('mainSyncBtn').onclick = fetchEvents;
+
+        async function fetchEvents() {
+            if (!isAuthorized) { toggleSettings(true); return; }
+            if (isSyncing) return; // Strict lock
+            
+            isSyncing = true;
+            const btn = document.getElementById('mainSyncBtn');
+            btn.innerHTML = `<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Syncing...`;
+            lucide.createIcons();
+            
+            clearSelection();
+
+            const range = getDateRange();
+            log(`Fetching events: ${range.min.toLocaleDateString()} to ${range.max.toLocaleDateString()}`);
+
+            try {
+                const response = await gapi.client.calendar.events.list({
+                    'calendarId': 'primary', 'timeMin': range.min.toISOString(),
+                    'timeMax': range.max.toISOString(), 'showDeleted': false,
+                    'singleEvents': true, 'orderBy': 'startTime'
+                });
+                
+                loadedEvents = response.result.items || [];
+                renderCalendar();
+            } catch (err) {
+                log('Fetch Error: ' + err.message, 'error');
+                if(err.status === 401) {
+                    log('Session expired. Please Re-Authorize.', 'warn');
+                    toggleSettings(true); 
+                }
+            } finally {
+                // Must ALWAYS clear the spinner lock
+                btn.innerHTML = `<i data-lucide="refresh-cw" class="w-4 h-4"></i> Sync`;
+                isSyncing = false;
+                lucide.createIcons();
+            }
+        }
+
+        document.getElementById('autoColorBtn').onclick = async () => {
+            if (isSyncing || loadedEvents.length === 0) return;
+            isSyncing = true;
+            const btn = document.getElementById('autoColorBtn');
+            const origHTML = btn.innerHTML;
+            btn.innerHTML = `<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Processing...`;
+            lucide.createIcons();
+            
+            try {
+                for (let event of loadedEvents) {
+                    if(!event.start.dateTime) continue;
+                    const title = event.summary || '';
+                    let targetColorId = null;
+
+                    for (const [emoji, colorId] of Object.entries(emojiMap)) {
+                        if (title.includes(emoji)) { targetColorId = colorId; break; }
+                    }
+
+                    if (targetColorId && event.colorId !== targetColorId) {
+                        const res = await gapi.client.calendar.events.patch({ calendarId: 'primary', eventId: event.id, resource: {colorId: targetColorId} });
+                        event.colorId = res.result.colorId;
+                        log(`Auto-colored '${title}'`);
+                    }
+                }
+                renderCalendar();
+            } catch(e) { 
+                log(`Failed to process auto-colors`, 'error'); 
+            } finally {
+                btn.innerHTML = origHTML;
+                isSyncing = false;
+                lucide.createIcons();
+            }
+        };
+
+        function goToDayView(dateIso) {
+            currentDate = new Date(dateIso + 'T12:00:00'); // Use noon to avoid timezone shift
+            setView('day');
+        }
+
+        function renderCalendar() {
+            if(currentView === 'month') {
+                renderMonthHeader();
+                renderMonthGrid();
+            } else {
+                renderTimeGrid();
+            }
+        }
+
+        function renderTimeGrid() {
+            const container = document.getElementById('timeGridContainer');
+            const headerContainer = document.getElementById('timeGridHeaderContainer');
+            if(headerContainer) headerContainer.innerHTML = '';
+            container.innerHTML = '';
+            
+            const ZOOM = 2; // Expand the vertical scale (1 min = 2px, 1 hour = 120px) so small tasks are readable
+            const range = getDateRange();
+            const daysCount = currentView === 'day' ? 1 : (currentView === '4day' ? 4 : 7);
+            const todayStr = new Date().toLocaleDateString('sv-SE');
+            
+            // Draw Fixed Time Labels & Horizontal Grid Lines
+            for(let h=0; h<24; h++) {
+                const topPos = h * 60 * ZOOM;
+                // Label
+                const label = document.createElement('div');
+                label.className = 'absolute left-0 w-[55px] text-right pr-3 text-[0.75rem] font-bold text-slate-500 dark:text-slate-400 transform -translate-y-1/2 select-none';
+                label.style.top = `${topPos}px`;
+                label.textContent = `${h === 0 ? 12 : (h > 12 ? h - 12 : h)} ${h >= 12 ? 'PM' : 'AM'}`;
+                container.appendChild(label);
+                
+                // Main Hour Line (Horizontal indicator)
+                const line = document.createElement('div');
+                line.className = 'absolute left-[60px] right-0 border-t border-gray-300 dark:border-slate-700 pointer-events-none z-0';
+                line.style.top = `${topPos}px`;
+                container.appendChild(line);
+                
+                // Half-hour Dashed Line
+                const halfLine = document.createElement('div');
+                halfLine.className = 'absolute left-[60px] right-0 border-t border-dashed border-gray-200/70 dark:border-slate-700/40 pointer-events-none z-0';
+                halfLine.style.top = `${topPos + (30 * ZOOM)}px`;
+                container.appendChild(halfLine);
+            }
+
+            // Iterate strictly through the days bounds
+            for(let d=0; d<daysCount; d++) {
+                const colDate = new Date(range.min);
+                colDate.setDate(colDate.getDate() + d);
+                const localDateIso = colDate.toLocaleDateString('sv-SE');
+                const isToday = localDateIso === todayStr;
+                
+                // Construct Grid Header safely with click-to-day navigation
+                if (headerContainer) {
+                    const header = document.createElement('div');
+                    header.className = 'flex-1 text-center flex flex-col items-center justify-end px-1 border-r border-transparent cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition rounded-xl py-1';
+                    header.onclick = () => goToDayView(localDateIso);
+                    
+                    const textColClass = isToday ? 'text-primary-600 dark:text-primary-400 font-bold' : 'text-slate-600 dark:text-slate-300 font-bold';
+                    const dateNumClass = isToday ? 'bg-primary-600 text-white rounded-full w-8 h-8 flex items-center justify-center shadow-md' : '';
+
+                    const dayName = new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(colDate).toUpperCase();
+                    const dayNum = colDate.getDate();
+                    const monthName = new Intl.DateTimeFormat('en-US', { month: 'short' }).format(colDate);
+                    const jalaliStr = new Intl.DateTimeFormat('fa-IR', { day: 'numeric', month: 'short' }).format(colDate);
+                    
+                    header.innerHTML = `
+                        <div class="flex items-center gap-1.5 mb-1 ${textColClass}">
+                            <span class="text-[0.7rem] uppercase tracking-wider">${dayName}</span>
+                            <span class="text-base font-black ${dateNumClass}">${dayNum}</span>
+                        </div>
+                        <span class="text-[0.6rem] text-slate-500 dark:text-slate-400 font-semibold tracking-wide">${monthName} &bull; ${jalaliStr}</span>
+                    `;
+                    headerContainer.appendChild(header);
+                }
+                
+                // Construct Grid Column safely
+                const col = document.createElement('div');
+                col.className = 'absolute top-0 bottom-0 border-r border-gray-200/50 dark:border-slate-700/50 transition-colors duration-200 z-10';
+                col.style.left = `calc(60px + ${d} * (100% - 60px) / ${daysCount})`;
+                col.style.width = `calc((100% - 60px) / ${daysCount})`;
+                col.dataset.dateIso = localDateIso;
+                
+                if (isToday) {
+                    col.classList.add('bg-primary-50/20', 'dark:bg-primary-900/10');
+                    const now = new Date();
+                    const nowMins = now.getHours() * 60 + now.getMinutes();
+                    const line = document.createElement('div');
+                    line.className = 'absolute left-0 right-0 h-[2px] bg-red-500 z-[45] pointer-events-none opacity-80';
+                    line.style.top = `${nowMins * ZOOM}px`;
+                    line.innerHTML = `<div class="absolute -left-1.5 -top-[4px] w-3 h-3 bg-red-500 rounded-full shadow-sm ring-2 ring-white dark:ring-slate-900"></div>`;
+                    col.appendChild(line);
+                }
+
+                container.appendChild(col);
+                
+                // Filter and draw events strictly matching this colDate
+                loadedEvents.forEach(event => {
+                    if(!event.start.dateTime) return; // Skip all day events for safety
+                    
+                    const start = new Date(event.start.dateTime);
+                    const end = new Date(event.end.dateTime);
+                    const eStartStr = start.toLocaleDateString('sv-SE'); 
+
+                    if(eStartStr === localDateIso) {
+                        const startMins = start.getHours() * 60 + start.getMinutes();
+                        const durMins = (end - start) / 60000;
+                        
+                        const block = document.createElement('div');
+                        block.className = `event-block absolute left-[4px] right-[4px] z-30 ${selectedEventIds.has(event.id) ? 'selected ring-2 ring-white scale-[1.02] z-50' : ''}`;
+                        block.dataset.id = event.id;
+                        block.style.top = `${startMins * ZOOM}px`;
+                        // Responsive height: guarantee a minimum of 24px so text is always visible
+                        const calcHeight = durMins * ZOOM;
+                        block.style.height = `${calcHeight < 24 ? 24 : calcHeight}px`;
+                        
+                        const colorHex = event.colorId && CALENDAR_COLORS[event.colorId] ? CALENDAR_COLORS[event.colorId].hex : defaultColorHex;
+                        block.style.backgroundColor = colorHex;
+                        block.innerHTML = `
+                            <div class="font-bold truncate text-[0.8rem] drop-shadow-sm leading-tight">${event.summary || '(No Title)'}</div>
+                            <div class="text-[0.65rem] opacity-90 mt-0.5 font-medium leading-none">${start.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div>
+                        `;
+                        
+                        block.draggable = true;
+                        block.ondragstart = handleTimeDragStart;
+                        block.ondragend = handleTimeDragEnd;
+                        block.onclick = handleEventClick;
+
+                        col.appendChild(block);
+                    }
+                });
+
+                // Set up Drop Targets
+                col.ondragover = e => {
+                    e.preventDefault();
+                    const rect = col.getBoundingClientRect();
+                    const yPos = e.clientY - rect.top - dragOffsetY;
+                    // Snap to 15 mins considering ZOOM
+                    const snapPx = 15 * ZOOM; 
+                    const snappedY = Math.max(0, Math.round(yPos / snapPx) * snapPx);
+                    const snappedMins = snappedY / ZOOM;
+                    
+                    if (dragShadow.parentNode !== col) col.appendChild(dragShadow);
+                    dragShadow.classList.remove('hidden');
+                    dragShadow.style.top = `${snappedY}px`;
+                    dragShadow.style.left = '4px';
+                    dragShadow.style.right = '4px';
+                    
+                    const draggedEv = loadedEvents.find(ev => ev.id === dragSrcId);
+                    if(draggedEv && draggedEv.start.dateTime && draggedEv.end.dateTime) {
+                        const durMins = (new Date(draggedEv.end.dateTime) - new Date(draggedEv.start.dateTime)) / 60000;
+                        dragShadow.style.height = `${durMins * ZOOM}px`;
+                    } else {
+                        dragShadow.style.height = `${60 * ZOOM}px`;
+                    }
+                    
+                    const hours = Math.floor(snappedMins / 60);
+                    const mins = snappedMins % 60;
+                    const ampm = hours >= 12 ? 'PM' : 'AM';
+                    const displayHours = hours === 0 ? 12 : (hours > 12 ? hours - 12 : hours);
+                    dragShadow.innerHTML = `<div class="bg-slate-900 text-white text-[0.65rem] font-bold px-1.5 py-0.5 rounded shadow whitespace-nowrap absolute -top-7 -left-1 opacity-90">${displayHours}:${mins.toString().padStart(2, '0')} ${ampm}</div>`;
+                };
+                
+                col.ondragenter = () => col.classList.add('bg-primary-50/30', 'dark:bg-primary-900/20');
+                col.ondragleave = () => col.classList.remove('bg-primary-50/30', 'dark:bg-primary-900/20');
+                col.ondrop = handleTimeDrop;
+            }
+        }
+
+        function renderMonthHeader() {
+            const container = document.getElementById('monthGridHeader');
+            container.innerHTML = '';
+            const daysArr = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            const firstDay = parseInt(localStorage.getItem('cc_firstDayOfWeek') || '0', 10);
+            const shiftedDays = daysArr.slice(firstDay).concat(daysArr.slice(0, firstDay));
+            
+            shiftedDays.forEach(day => {
+                const el = document.createElement('div');
+                el.textContent = day;
+                container.appendChild(el);
+            });
+        }
+
+        function renderMonthGrid() {
+            const container = document.getElementById('monthGridCells');
+            container.innerHTML = '';
+            
+            const range = getDateRange();
+            let curr = new Date(range.min);
+            const todayStr = new Date().toLocaleDateString('sv-SE');
+            
+            while(curr <= range.max) {
+                const cell = document.createElement('div');
+                cell.className = 'month-cell';
+                const dateIso = curr.toLocaleDateString('sv-SE');
+                cell.dataset.dateIso = dateIso;
+                
+                const isCurrentMonth = curr.getMonth() === currentDate.getMonth();
+                const isToday = dateIso === todayStr;
+                
+                const header = document.createElement('div');
+                // Added cursor-pointer and hover colors to make it clickable
+                header.className = `sticky top-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md z-10 flex justify-between items-center text-sm p-1 mb-1 cursor-pointer hover:text-primary-600 dark:hover:text-primary-400 transition-colors ${isCurrentMonth ? 'text-slate-700 dark:text-slate-200' : 'text-slate-400 dark:text-slate-600'} font-bold`;
+                header.onclick = () => goToDayView(dateIso);
+                
+                const jalaliDay = new Intl.DateTimeFormat('fa-IR', { day: 'numeric' }).format(curr);
+                let gregContent = curr.getDate();
+                if (curr.getDate() === 1) gregContent = new Intl.DateTimeFormat('en-US', { day: 'numeric', month: 'short' }).format(curr);
+                if (isToday) gregContent = `<span class="bg-primary-600 text-white rounded-full w-6 h-6 inline-flex items-center justify-center shadow-md text-xs">${gregContent}</span>`;
+                
+                header.innerHTML = `<span class="text-[0.65rem] font-medium opacity-60 ml-1">${jalaliDay}</span><span>${gregContent}</span>`;
+                cell.appendChild(header);
+
+                const eventsWrapper = document.createElement('div');
+                eventsWrapper.className = 'flex flex-wrap gap-1.5 p-1 content-start flex-1 overflow-y-auto custom-scrollbar';
+                cell.appendChild(eventsWrapper);
+
+                loadedEvents.forEach(event => {
+                    if(!event.start.dateTime) return; 
+                    const start = new Date(event.start.dateTime);
+                    if(start.toLocaleDateString('sv-SE') === dateIso) {
+                        const evDiv = document.createElement('div');
+                        evDiv.className = `month-event ${selectedEventIds.has(event.id) ? 'selected' : ''}`;
+                        evDiv.dataset.id = event.id;
+                        const colorHex = event.colorId && CALENDAR_COLORS[event.colorId] ? CALENDAR_COLORS[event.colorId].hex : defaultColorHex;
+                        evDiv.style.backgroundColor = colorHex;
+                        
+                        // Use a native tooltip to show details instantly on hover
+                        const timeStr = start.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+                        evDiv.title = `${timeStr}\n${event.summary || '(No Title)'}`;
+                        
+                        evDiv.draggable = true;
+                        evDiv.ondragstart = handleMonthDragStart;
+                        evDiv.onclick = handleEventClick;
+                        
+                        eventsWrapper.appendChild(evDiv);
+                    }
+                });
+
+                cell.ondragover = e => { e.preventDefault(); cell.classList.add('bg-primary-50/30', 'dark:bg-primary-900/20'); };
+                cell.ondragleave = () => cell.classList.remove('bg-primary-50/30', 'dark:bg-primary-900/20');
+                cell.ondrop = handleMonthDrop;
+
+                container.appendChild(cell);
+                curr.setDate(curr.getDate() + 1);
+            }
+        }
+
+        function handleEventClick(e) {
+            e.stopPropagation();
+            const id = e.currentTarget.dataset.id;
+            
+            if (e.shiftKey) {
+                if (selectedEventIds.has(id)) selectedEventIds.delete(id);
+                else selectedEventIds.add(id);
+            } else {
+                selectedEventIds.clear();
+                selectedEventIds.add(id);
+            }
+            
+            updateSelectionUI();
+            renderCalendar(); 
+        }
+
+        document.getElementById('calendarScrollArea').onclick = (e) => {
+            if(!e.target.closest('.event-block') && !e.target.closest('.month-event')) clearSelection();
+        };
+
+        function clearSelection() {
+            if(selectedEventIds.size > 0) {
+                selectedEventIds.clear();
+                updateSelectionUI();
+                renderCalendar();
+            }
+        }
+
+        function updateSelectionUI() {
+            const bar = document.getElementById('bulkEditBar');
+            if (selectedEventIds.size > 0) {
+                document.getElementById('selectedCount').textContent = selectedEventIds.size;
+                bar.classList.remove('hidden');
+                
+                if(selectedEventIds.size === 1) {
+                    const ev = loadedEvents.find(e => e.id === Array.from(selectedEventIds)[0]);
+                    document.getElementById('bulkColor').value = ev.colorId || '';
+                    document.querySelectorAll('#bulkReminders input').forEach(cb => cb.checked = false);
+                    if(ev.reminders && ev.reminders.useDefault === false && ev.reminders.overrides) {
+                        ev.reminders.overrides.forEach(r => {
+                            const cb = document.querySelector(`#bulkReminders input[value="${r.minutes}"]`);
+                            if(cb) cb.checked = true;
+                        });
+                    }
+                } else {
+                    document.getElementById('bulkColor').value = '';
+                    document.querySelectorAll('#bulkReminders input').forEach(cb => cb.checked = false);
+                }
+            } else {
+                bar.classList.add('hidden');
+            }
+        }
+
+        document.getElementById('applyBulkBtn').onclick = async () => {
+            const newColor = document.getElementById('bulkColor').value;
+            const selectedReminders = Array.from(document.querySelectorAll('#bulkReminders input:checked')).map(cb => ({ method: 'popup', minutes: parseInt(cb.value, 10) }));
+
+            const btn = document.getElementById('applyBulkBtn');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = `<i data-lucide="loader" class="w-4 h-4 animate-spin inline"></i> Saving...`;
+            lucide.createIcons();
+            
+            const promises = Array.from(selectedEventIds).map(async id => {
+                let patch = {};
+                if(newColor !== "") patch.colorId = newColor;
+                if(selectedReminders.length > 0) patch.reminders = { useDefault: false, overrides: selectedReminders };
+                else patch.reminders = { useDefault: true }; 
+                
+                try {
+                    const res = await gapi.client.calendar.events.patch({ calendarId: 'primary', eventId: id, resource: patch });
+                    const evIndex = loadedEvents.findIndex(e => e.id === id);
+                    if(evIndex > -1) {
+                        if(newColor) loadedEvents[evIndex].colorId = res.result.colorId;
+                        loadedEvents[evIndex].reminders = res.result.reminders;
+                    }
+                } catch(e) { log(`Failed updating event properties.`, 'error'); }
+            });
+
+            await Promise.all(promises);
+            btn.innerHTML = originalText;
+            clearSelection();
+        };
+
+        let dragSrcId = null;
+        let dragOffsetY = 0;
+
+        function handleTimeDragStart(e) {
+            dragSrcId = e.target.closest('.event-block').dataset.id;
+            const rect = e.target.closest('.event-block').getBoundingClientRect();
+            dragOffsetY = e.clientY - rect.top;
+            e.dataTransfer.effectAllowed = 'move';
+            
+            if(!selectedEventIds.has(dragSrcId)) {
+                selectedEventIds.clear(); selectedEventIds.add(dragSrcId); updateSelectionUI(); renderCalendar();
+            }
+            setTimeout(() => e.target.closest('.event-block').classList.add('dragging'), 0);
+        }
+
+        function handleTimeDragEnd(e) {
+            e.target.closest('.event-block').classList.remove('dragging');
+            dragShadow.classList.add('hidden');
+            if(dragShadow.parentNode) dragShadow.parentNode.removeChild(dragShadow);
+            dragSrcId = null;
+        }
+
+        async function handleTimeDrop(e) {
+            e.preventDefault();
+            const col = e.currentTarget; 
+            col.classList.remove('bg-primary-50/30', 'dark:bg-primary-900/20');
+            dragShadow.classList.add('hidden');
+            if(dragShadow.parentNode) dragShadow.parentNode.removeChild(dragShadow);
+
+            const targetDateIso = col.dataset.dateIso;
+            const rect = col.getBoundingClientRect();
+            const yPos = e.clientY - rect.top - dragOffsetY;
+            
+            // Snap to 15 mins using ZOOM=2 scale
+            const ZOOM = 2;
+            const snapPx = 15 * ZOOM;
+            const snappedY = Math.max(0, Math.round(yPos / snapPx) * snapPx);
+            const snappedMins = snappedY / ZOOM;
+            
+            const dropHours = Math.floor(snappedMins / 60);
+            const dropMins = snappedMins % 60;
+
+            const baseEvent = loadedEvents.find(ev => ev.id === dragSrcId);
+            if(!baseEvent) return;
+
+            const origStart = new Date(baseEvent.start.dateTime);
+            const newStart = new Date(`${targetDateIso}T00:00:00`);
+            newStart.setHours(dropHours, dropMins, 0, 0);
+            const deltaMs = newStart.getTime() - origStart.getTime();
+
+            processMove(deltaMs);
+        }
+
+        function handleMonthDragStart(e) {
+            dragSrcId = e.target.dataset.id;
+            if(!selectedEventIds.has(dragSrcId)) {
+                selectedEventIds.clear(); selectedEventIds.add(dragSrcId); updateSelectionUI(); renderCalendar();
+            }
+            setTimeout(() => e.target.style.opacity = '0.5', 0);
+        }
+
+        async function handleMonthDrop(e) {
+            e.preventDefault();
+            const cell = e.currentTarget.closest('.month-cell');
+            cell.classList.remove('bg-primary-50/30', 'dark:bg-primary-900/20');
+            
+            const baseEvent = loadedEvents.find(ev => ev.id === dragSrcId);
+            if(!baseEvent) return;
+
+            const origStart = new Date(baseEvent.start.dateTime);
+            const newStart = new Date(`${cell.dataset.dateIso}T00:00:00`);
+            newStart.setHours(origStart.getHours(), origStart.getMinutes(), 0, 0);
+            
+            processMove(newStart.getTime() - origStart.getTime());
+        }
+
+        // Instant Optimistic Updates
+        function processMove(deltaMs) {
+            if (deltaMs === 0) return;
+            log(`Optimistically moving ${selectedEventIds.size} event(s)...`);
+
+            const eventsToSync = [];
+
+            Array.from(selectedEventIds).forEach(id => {
+                const event = loadedEvents.find(ev => ev.id === id);
+                if(event && event.start.dateTime && event.end.dateTime) {
+                    const oldStart = new Date(event.start.dateTime);
+                    const oldEnd = new Date(event.end.dateTime);
+                    event.start.dateTime = new Date(oldStart.getTime() + deltaMs).toISOString();
+                    event.end.dateTime = new Date(oldEnd.getTime() + deltaMs).toISOString();
+                    eventsToSync.push({ id, start: event.start, end: event.end, summary: event.summary });
+                }
+            });
+
+            renderCalendar(); // UI Updates Instantly
+
+            // API updates secretly in background
+            eventsToSync.forEach(async (evData) => {
+                try {
+                    await gapi.client.calendar.events.patch({
+                        calendarId: 'primary', eventId: evData.id,
+                        resource: {
+                            start: { dateTime: evData.start.dateTime, timeZone: evData.start.timeZone },
+                            end: { dateTime: evData.end.dateTime, timeZone: evData.end.timeZone }
+                        }
+                    });
+                    log(`Synced move: '${evData.summary || 'Event'}'`);
+                } catch(e) { 
+                    log(`Sync failed for '${evData.summary}'. Data out of sync.`, 'error'); 
+                }
+            });
+        }
+
+        // --- AI Gemini Chatbot Integration ---
+        let isChatOpen = false;
+        let chatHistory = [];
+
+        function toggleAIChat() {
+            // Google blocks iframes, so we open a perfectly sized popup window instead!
+            const width = 450;
+            const height = 800;
+            // Position it nicely on the right side of the screen
+            const left = window.screenX + window.innerWidth - width - 40;
+            const top = window.screenY + 80;
+            
+            // This opens the official Gemini website in a clean, app-like window
+            window.open(
+                'https://gemini.google.com/app', 
+                'Gemini AI', 
+                `width=${width},height=${height},left=${left},top=${top},menubar=no,toolbar=no,location=no,status=no,scrollbars=yes`
+            );
+        }
+
+        document.getElementById('aiChatInput').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendChatMessage();
+            }
+        });
+
+        function appendChatMessage(role, text) {
+            const container = document.getElementById('aiChatContent');
+            const msgDiv = document.createElement('div');
+            
+            // Basic formatting for Gemini's Markdown (bolding and line breaks)
+            const formattedText = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
+
+            if (role === 'user') {
+                msgDiv.className = 'bg-primary-600 text-white p-3 rounded-2xl rounded-tr-sm self-end max-w-[85%] text-sm shadow-md';
+            } else {
+                msgDiv.className = 'glass-panel text-slate-800 dark:text-slate-200 p-3 rounded-2xl rounded-tl-sm self-start max-w-[90%] text-sm shadow-sm border border-white/40 dark:border-slate-700/50';
+            }
+            
+            msgDiv.innerHTML = formattedText;
+            container.appendChild(msgDiv);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function showThinkingIndicator() {
+            const container = document.getElementById('aiChatContent');
+            const msgDiv = document.createElement('div');
+            msgDiv.id = 'ai-thinking-indicator';
+            msgDiv.className = 'glass-panel text-fuchsia-600 dark:text-fuchsia-400 p-3 rounded-2xl rounded-tl-sm self-start max-w-[90%] text-sm shadow-sm border border-white/40 dark:border-slate-700/50 flex items-center gap-2';
+            msgDiv.innerHTML = `
+                <i data-lucide="sparkles" class="w-4 h-4 animate-pulse"></i>
+                <div class="thinking-dots">
+                    <div class="thinking-dot"></div>
+                    <div class="thinking-dot"></div>
+                    <div class="thinking-dot"></div>
+                </div>
+            `;
+            container.appendChild(msgDiv);
+            lucide.createIcons({root: msgDiv});
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function removeThinkingIndicator() {
+            const indicator = document.getElementById('ai-thinking-indicator');
+            if (indicator) indicator.remove();
+        }
+
+        async function sendChatMessage() {
+            const input = document.getElementById('aiChatInput');
+            const text = input.value.trim();
+            if (!text) return;
+
+            input.value = '';
+            appendChatMessage('user', text);
+            chatHistory.push({ role: 'user', parts: [{ text }] });
+
+            const btn = document.getElementById('aiSendBtn');
+            const origIcon = btn.innerHTML;
+            btn.innerHTML = `<i data-lucide="loader" class="w-4 h-4 animate-spin"></i>`;
+            lucide.createIcons();
+            
+            showThinkingIndicator();
+
+            try {
+                // Generate Context: Gather today's schedule and exact time to feed to Gemini
+                const now = new Date();
+                const currentDateTimeStr = now.toLocaleString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                
+                let scheduleContext = `CRITICAL TIME CONTEXT:\nThe current real-world date and time is: ${currentDateTimeStr}.\nYour Timezone is: ${tz}.\nAlways base your answers and ISO 8601 timestamps on this exact date and timezone.\n\nHere is the user's schedule for the currently viewed date range:\n`;
+                
+                if (loadedEvents.length === 0) {
+                    scheduleContext += "There are no events scheduled in the current view.\n";
+                } else {
+                    // Sort events chronologically and group by day
+                    const sortedEvents = [...loadedEvents].sort((a, b) => new Date(a.start?.dateTime || 0) - new Date(b.start?.dateTime || 0));
+                    let lastDay = '';
+                    
+                    sortedEvents.forEach(e => {
+                        if(!e.start?.dateTime) return;
+                        const sDate = new Date(e.start.dateTime);
+                        const eDate = new Date(e.end.dateTime);
+                        const dayStr = sDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+                        
+                        if(dayStr !== lastDay) {
+                            scheduleContext += `\n**${dayStr}**:\n`;
+                            lastDay = dayStr;
+                        }
+                        
+                        const start = sDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                        const end = eDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                        // SUPERCHARGE: Give Gemini the exact Event ID so it can manipulate existing events!
+                        scheduleContext += `- [ID: ${e.id}] ${start} to ${end}: ${e.summary || '(No Title)'}\n`;
+                    });
+                }
+
+                let apiKey = document.getElementById('geminiApiKey') ? document.getElementById('geminiApiKey').value.trim() : "";
+                if (!apiKey) apiKey = ""; 
+                
+                // FIXED: Using the universally supported gemini-1.5-flash-latest model to completely avoid "not found" routing issues
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`;
+                
+                const payload = {
+                    contents: chatHistory,
+                    systemInstruction: {
+                        parts: [{ text: "You are a highly efficient and friendly productivity assistant integrated into a beautiful modern Calendar app. Your job is to help the user plan their day, find free time, or reorganize their tasks. Keep your answers concise, structured, and easy to read. IMPORTANT: If a user asks to plan multiple events, routine, or a whole day, you CAN and MUST call the `createCalendarEvent` tool multiple times within a single response to schedule all of them simultaneously.\n\n" + scheduleContext }]
+                    },
+                    tools: [{
+                        functionDeclarations: [
+                            {
+                                name: "createCalendarEvent",
+                                description: "Creates a new event in the user's Google Calendar. Call this multiple times if you need to schedule multiple events at once.",
+                                parameters: {
+                                    type: "OBJECT",
+                                    properties: {
+                                        summary: { type: "STRING", description: "Title of the event" },
+                                        startTime: { type: "STRING", description: "Start time in strict ISO 8601 format including timezone offset" },
+                                        endTime: { type: "STRING", description: "End time in strict ISO 8601 format including timezone offset" },
+                                        colorId: { type: "STRING", description: "Optional Google Calendar color ID from '1' to '11'." }
+                                    },
+                                    required: ["summary", "startTime", "endTime"]
+                                }
+                            },
+                            {
+                                name: "deleteCalendarEvent",
+                                description: "Deletes a specific event from the user's Google Calendar. Call this when the user asks to remove, cancel, or delete an event.",
+                                parameters: {
+                                    type: "OBJECT",
+                                    properties: {
+                                        eventId: { type: "STRING", description: "The exact ID of the event to delete, taken from the schedule context provided." },
+                                        summary: { type: "STRING", description: "The title of the event being deleted (for the confirmation message)." }
+                                    },
+                                    required: ["eventId", "summary"]
+                                }
+                            }
+                        ]
+                    }]
+                };
+
+                // FIXED: Removed the blind retry loop. It was spamming the API and triggering stricter limits!
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+                
+                removeThinkingIndicator();
+
+                if (result.error) {
+                    if (result.error.code === 429) {
+                        appendChatMessage('model', `⏳ **Google API Quota Blocked!**<br><br>Raw Error:<br><span class="text-[0.65rem] font-mono text-red-600 dark:text-red-400 leading-tight block mt-2 mb-2 bg-red-50 dark:bg-red-900/30 p-2 rounded shadow-inner">${result.error.message}</span><em>Note: If you are in Europe, Google completely disables the free tier. You must use a VPN or link a billing account.</em>`);
+                    } else {
+                        appendChatMessage('model', `API Error: ${result.error.message}`);
+                    }
+                    chatHistory.pop(); 
+                } else if (result.candidates && result.candidates.length > 0) {
+                    const parts = result.candidates[0].content?.parts;
+                    if (parts) {
+                        let respondedText = "";
+                        let functionCalls = [];
+                        
+                        // Collect all function calls Gemini wants to make
+                        parts.forEach(p => {
+                            if (p.text) respondedText += p.text;
+                            if (p.functionCall) functionCalls.push(p.functionCall);
+                        });
+                        
+                        if (functionCalls.length > 0) {
+                            appendChatMessage('model', `⏳ Processing ${functionCalls.length} calendar action(s)...`);
+                            let successCount = 0;
+                            let actionDetails = [];
+                            
+                            // Execute all function calls simultaneously
+                            const promises = functionCalls.map(async (call) => {
+                                if (call.name === 'createCalendarEvent') {
+                                    const args = call.args;
+                                    try {
+                                        await gapi.client.calendar.events.insert({
+                                            calendarId: 'primary',
+                                            resource: {
+                                                summary: args.summary,
+                                                start: { dateTime: args.startTime },
+                                                end: { dateTime: args.endTime },
+                                                colorId: args.colorId || "7"
+                                            }
+                                        });
+                                        successCount++;
+                                        actionDetails.push(`✅ Scheduled: **${args.summary}**`);
+                                    } catch (err) {
+                                        actionDetails.push(`❌ Failed to schedule **${args.summary}**: ${err.message}`);
+                                    }
+                                } 
+                                else if (call.name === 'deleteCalendarEvent') {
+                                    const args = call.args;
+                                    try {
+                                        await gapi.client.calendar.events.delete({
+                                            calendarId: 'primary',
+                                            eventId: args.eventId
+                                        });
+                                        successCount++;
+                                        actionDetails.push(`🗑️ Canceled: **${args.summary}**`);
+                                    } catch (err) {
+                                        actionDetails.push(`❌ Failed to cancel **${args.summary}**: ${err.message}`);
+                                    }
+                                }
+                            });
+                            
+                            await Promise.all(promises);
+                            
+                            // Report results back to the user
+                            let finalMsg = `Successfully processed ${successCount} action(s):<br><br>${actionDetails.join('<br>')}`;
+                            if (respondedText) finalMsg = respondedText + "<br><br>" + finalMsg;
+                            
+                            appendChatMessage('model', finalMsg);
+                            chatHistory.push({ role: 'model', parts: [{ text: finalMsg }] });
+                            fetchEvents(); 
+                        } else if (respondedText) {
+                            appendChatMessage('model', respondedText);
+                            chatHistory.push({ role: 'model', parts: [{ text: respondedText }] });
+                        } else {
+                            appendChatMessage('model', 'My response was empty.');
+                            chatHistory.pop();
+                        }
+                    }
+                } else {
+                    appendChatMessage('model', 'I am sorry, I had trouble processing that request.');
+                    chatHistory.pop();
+                }
+            } catch (e) {
+                removeThinkingIndicator();
+                appendChatMessage('model', 'Network error. Please try again.');
+                chatHistory.pop();
+                log('Gemini AI Error: ' + e.message, 'error');
+            } finally {
+                btn.innerHTML = origIcon;
+                lucide.createIcons();
+            }
+        }
+    </script>
+</body>
+</html>
